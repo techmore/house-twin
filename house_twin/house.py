@@ -20,7 +20,10 @@ Coordinate system
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import json
+import os
+from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
 
 # ── Building envelope ────────────────────────────────────────────────────────
 
@@ -273,12 +276,149 @@ class House:
             "sensors": [s.to_dict() for s in self.sensors],
         }
 
+    # ── layout overrides ─────────────────────────────────────────────────────
+
+    @classmethod
+    def from_dict(cls, data: dict) -> House:
+        """Build a House from a ``to_dict()`` payload, validating as usual.
+
+        Accepts a partial document: anything omitted falls back to the module
+        defaults, so an override file can carry just the bits that changed.
+        """
+        levels: list[Level] = []
+        by_index = {int(lv["index"]): lv for lv in data.get("levels", [])}
+
+        for base in LEVELS:
+            raw = by_index.get(base.index)
+            if raw is None:
+                levels.append(base)
+                continue
+
+            rooms_by_id = {r["id"]: r for r in raw.get("rooms", [])}
+            rooms = []
+            for default_room in base.rooms:
+                r = rooms_by_id.get(default_room.id)
+                if r is None:
+                    rooms.append(default_room)
+                    continue
+                rooms.append(
+                    replace(
+                        default_room,
+                        name=r.get("name", default_room.name),
+                        x=float(r.get("x", default_room.x)),
+                        z=float(r.get("z", default_room.z)),
+                        width=float(r.get("width", default_room.width)),
+                        depth=float(r.get("depth", default_room.depth)),
+                        kind=r.get("kind", default_room.kind),
+                        standing=bool(r.get("standing", default_room.standing)),
+                    )
+                )
+            # Rooms present only in the override are appended to this level.
+            known = {r.id for r in rooms}
+            for r in raw.get("rooms", []):
+                if r["id"] not in known:
+                    rooms.append(
+                        Room(
+                            id=r["id"],
+                            name=r.get("name", r["id"]),
+                            level=base.index,
+                            x=float(r["x"]),
+                            z=float(r["z"]),
+                            width=float(r["width"]),
+                            depth=float(r["depth"]),
+                            kind=r.get("kind", "living"),
+                            standing=bool(r.get("standing", True)),
+                        )
+                    )
+            levels.append(
+                Level(
+                    index=base.index,
+                    name=raw.get("name", base.name),
+                    elevation=float(raw.get("elevation", base.elevation)),
+                    height=float(raw.get("height", base.height)),
+                    rooms=rooms,
+                )
+            )
+
+        sensors = []
+        raw_sensors = {s["id"]: s for s in data.get("sensors", [])}
+        for default_sensor in _SENSORS:
+            s = raw_sensors.get(default_sensor.id)
+            if s is None:
+                sensors.append(default_sensor)
+                continue
+            sensors.append(
+                replace(
+                    default_sensor,
+                    name=s.get("name", default_sensor.name),
+                    room_id=s.get("room_id", default_sensor.room_id),
+                    x=float(s.get("x", default_sensor.x)),
+                    z=float(s.get("z", default_sensor.z)),
+                    level=int(s.get("level", default_sensor.level)),
+                    height_ft=float(s.get("height_ft", default_sensor.height_ft)),
+                    match=s.get("match", default_sensor.match),
+                )
+            )
+        for s in data.get("sensors", []):
+            if s["id"] not in {x.id for x in sensors}:
+                sensors.append(
+                    SensorPlacement(
+                        id=s["id"],
+                        name=s.get("name", s["id"]),
+                        room_id=s["room_id"],
+                        x=float(s["x"]),
+                        z=float(s["z"]),
+                        level=int(s["level"]),
+                        height_ft=float(s.get("height_ft", 5.0)),
+                        match=s.get("match", ""),
+                    )
+                )
+
+        return cls(levels, sensors)
+
+    @classmethod
+    def load(cls, path: Path | str | None = None) -> House:
+        """Load the model, applying ``house_layout.json`` if it exists.
+
+        The override is how you adjust the layout without editing Python: move a
+        sensor, resize a room, add a room. Anything omitted keeps its default.
+        A malformed override raises rather than silently falling back, so a typo
+        surfaces immediately instead of quietly reverting to the defaults.
+        """
+        target = Path(path) if path else DEFAULT_LAYOUT_PATH
+        if not target.exists():
+            return cls()
+        try:
+            data = json.loads(target.read_text())
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{target} is not valid JSON: {exc}") from None
+        try:
+            return cls.from_dict(data)
+        except ValueError as exc:
+            raise ValueError(f"{target} is invalid: {exc}") from None
+
+    def save_layout(self, path: Path | str | None = None) -> Path:
+        """Write the current model out as a ``house_layout.json`` override."""
+        target = Path(path) if path else DEFAULT_LAYOUT_PATH
+        target.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+        return target
+
+
+#: Optional override consulted by :meth:`House.load`.
+DEFAULT_LAYOUT_PATH = Path(
+    os.environ.get(
+        "HOUSE_TWIN_LAYOUT",
+        Path(__file__).resolve().parent.parent / "house_layout.json",
+    )
+)
+
 
 if __name__ == "__main__":
-    import json
+    import json as _json
 
-    house = House()
-    print(json.dumps(house.summary(), indent=2))
+    house = House.load()
+    override = "" if not DEFAULT_LAYOUT_PATH.exists() else "  (with house_layout.json override)"
+    print(_json.dumps(house.summary(), indent=2) + override)
     for level in house.levels:
         print(f"\n{level.name} (y={level.elevation})")
         for room in level.rooms:

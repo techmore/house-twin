@@ -2,6 +2,9 @@
 config.json
 config.json.tmp
 
+# User-specific layout overrides (sensor positions, room sizes)
+house_layout.json
+
 # Local database
 house.db
 house.db-shm

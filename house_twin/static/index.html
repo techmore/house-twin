@@ -55,6 +55,26 @@
         </label>
         <button id="reset-view" class="ghost">Reset view</button>
       </div>
+      <div class="row">
+        <button id="edit-toggle" class="ghost wide">Edit positions</button>
+      </div>
+    </section>
+
+    <section id="edit-panel">
+      <h2>Editing</h2>
+      <p class="note">
+        Drag a sensor to where it actually sits. Orbit is disabled while editing;
+        use the <em>Explode floors</em> slider to separate levels and reach the
+        ones above you.
+      </p>
+      <p class="note">
+        Saves to <code>house_layout.json</code>, which overrides the defaults in
+        <code>house.py</code>. Room sizes are edited in that file directly.
+      </p>
+      <div class="row">
+        <button id="save-layout" class="ghost wide">Save layout</button>
+        <button id="discard-layout" class="ghost wide">Discard</button>
+      </div>
     </section>
 
     <section class="legend">
@@ -76,6 +96,7 @@
   <div id="stage">
     <canvas id="view"></canvas>
     <div id="hint">drag to orbit · scroll to zoom · click a sensor</div>
+    <div id="toast"></div>
   </div>
 </main>
 

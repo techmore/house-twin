@@ -34,6 +34,72 @@ jobs:
       - name: Geometry validates
         run: python -m house_twin.house
 
+      - name: Layout override round-trips and rejects bad input
+        run: |
+          python -c "
+          import json, tempfile, pathlib
+          from house_twin.house import House
+          h = House()
+          with tempfile.TemporaryDirectory() as d:
+              p = pathlib.Path(d) / 'house_layout.json'
+              h.save_layout(p)
+              assert House.load(p).to_dict() == h.to_dict(), 'round-trip differs'
+              print('round-trip OK')
+          # partial override keeps untouched defaults
+          with tempfile.TemporaryDirectory() as d:
+              p = pathlib.Path(d) / 'l.json'
+              p.write_text(json.dumps({
+                  'sensors': [{'id': 'aq_attic', 'x': 24.0, 'z': 27.0}],
+                  'levels': [{'index': 0, 'rooms': [{'id': 'bath_main', 'name': 'Main Bath'}]}],
+              }))
+              o = House.load(p)
+              a = [s for s in o.sensors if s.id == 'aq_attic'][0]
+              assert (a.x, a.z) == (24.0, 27.0)
+              assert o.room('bath_main').name == 'Main Bath'
+              assert o.room('living').width == 18, 'untouched default lost'
+              print('partial override OK')
+          # bad input must raise, not silently fall back
+          for name, body in [
+              ('malformed', '{not json'),
+              ('overflow', json.dumps({'levels':[{'index':0,'rooms':[{'id':'living','width':99,'depth':99}]}]})),
+              ('no tile', json.dumps({'levels':[{'index':1,'rooms':[{'id':'bedroom_1','width':5,'depth':5}]}]})),
+              ('bad room', json.dumps({'sensors':[{'id':'aq_attic','room_id':'nope','x':1,'z':1,'level':2}]})),
+          ]:
+              with tempfile.TemporaryDirectory() as d:
+                  p = pathlib.Path(d) / 'l.json'
+                  p.write_text(body)
+                  try:
+                      House.load(p)
+                      raise AssertionError(f'{name} was not rejected')
+                  except ValueError:
+                      pass
+          print('bad input rejected OK')
+          "
+
+      - name: Poller idles without credentials
+        run: |
+          python -c "
+          import logging, tempfile, pathlib
+          from house_twin.poller import poll_once, assign_devices
+          from house_twin.house import House
+          from house_twin.client import AqaraClient
+          from house_twin.config import Config
+          from house_twin import store
+          with tempfile.TemporaryDirectory() as d:
+              cfg = Config(pathlib.Path(d) / 'config.json')
+              conn = store.connect(pathlib.Path(d) / 'h.db')
+              client = AqaraClient(cfg)
+              assert poll_once(client, House(), conn) == 0, 'should write nothing'
+              assert store.latest(conn) == []
+              print('idle poller OK')
+              # positional fallback assigns unnamed devices
+              house = House()
+              devs = [{'did': 'a', 'name': 'Sensor 1'}, {'did': 'b', 'name': 'Sensor 2'}]
+              m = assign_devices(house, devs)
+              assert len(m) == 2, m
+              print('device fallback OK')
+          "
+
       - name: Store round-trip
         run: |
           python -m house_twin.seed --hours 2 --step 300
@@ -61,4 +127,15 @@ jobs:
           r = c.get('/api/history/nope')
           assert r.status_code == 404
           print('404 guard OK')
+          # layout endpoint must reject invalid input
+          for bad in ['not json', {}, {'sensors': [{'id':'aq_attic','room_id':'nope','x':1,'z':1,'level':2}]}]:
+              r = c.post('/api/layout', json=bad)
+              assert r.status_code == 400, (bad, r.status_code)
+          print('layout validation OK')
           "
+
+      - name: plists are valid
+        run: for f in setup/*.plist; do plutil -lint "$f"; done
+
+      - name: shell script is valid
+        run: bash -n setup_launch.sh

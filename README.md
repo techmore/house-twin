@@ -25,6 +25,89 @@ See [Getting authorised](#getting-authorised).
 
 ---
 
+## Correcting the layout
+
+The room sizes and sensor positions in `house.py` are a **plausible guess, not a
+survey**. Two ways to fix them, depending on what needs changing.
+
+### Move a sensor (in the browser)
+
+Press **Edit positions**, then drag a sensor to where it actually sits. The
+nearest room is reported as you drop it, so you can sanity-check before saving.
+**Save layout** writes `house_layout.json`.
+
+Orbit is disabled while editing. Use the **Explode floors** slider to pull the
+levels apart so you can reach the ones above you.
+
+### Change room sizes (in the file)
+
+`house_layout.json` overrides whatever `house.py` declares, and anything you
+leave out keeps its default. Rename a room:
+
+```json
+{
+  "levels": [
+    { "index": 0, "rooms": [ { "id": "bath_main", "name": "Main Bath" } ] }
+  ]
+}
+```
+
+Move a sensor and re-assign its room:
+
+```json
+{
+  "sensors": [
+    { "id": "aq_attic", "x": 15.0, "z": 16.0, "room_id": "attic" }
+  ]
+}
+```
+
+Both forms can be combined, and you can add rooms rather than only resizing
+existing ones. Delete the file to go back to the built-in defaults.
+
+**A bad override fails loudly.** Rooms that overflow the 30 × 33 footprint, a
+level whose rooms no longer tile it exactly, a sensor pointing at a room that
+does not exist, or malformed JSON all raise on load instead of silently
+reverting to defaults — so a typo surfaces immediately rather than quietly
+giving you the wrong model. Saving through the editor validates the same way and
+leaves the file untouched if the result is invalid.
+
+To capture the current model as a starting point:
+
+```bash
+.venv/bin/python -c "from house_twin.house import House; print(House.load().save_layout())"
+```
+
+---
+
+## Running as a service
+
+```bash
+./setup_launch.sh install     # load both agents and start them
+./setup_launch.sh status      # what is running, and is the dashboard up
+./setup_launch.sh logs        # tail both logs
+./setup_launch.sh uninstall   # unload and remove
+```
+
+Two LaunchAgents, matching the two-process architecture:
+
+| Label | Does | Log |
+|---|---|---|
+| `com.dolbec.housetwin.poller` | polls Aqara, writes `house.db` | `/tmp/housetwin-poller.log` |
+| `com.dolbec.housetwin.web` | serves the dashboard on :5002 | `/tmp/housetwin-web.log` |
+
+`setup/launchagent-*.plist` use a `__PROJECT_ROOT__` placeholder that
+`setup_launch.sh` substitutes at install time, so the checkout can live anywhere.
+Both bind loopback only.
+
+The poller logs its idle reason **once**, not once a minute, so an install
+waiting on authorisation does not fill the log.
+
+Override the port with `HOUSE_TWIN_PORT` (default `5002`) and the bind address
+with `HOUSE_TWIN_HOST` (default `127.0.0.1`) if you need to.
+
+---
+
 ## Quick start
 
 ```bash
@@ -188,12 +271,16 @@ house_twin/
   config.py     credential + token persistence, region → endpoint
   client.py     OpenAPI v3.0 client: auth, devices, batched resource reads
   auth.py       CLI for the three-step authorisation flow
-  house.py      the building: levels, rooms, sensor placements
+  house.py      the building: levels, rooms, sensor placements, layout overrides
   store.py      SQLite schema, reads, history, retention
   poller.py     the write side — polls and appends
   web.py        the read side — JSON API + static host (127.0.0.1 only)
   seed.py       synthetic data for development
   static/       Three.js front end (three.js vendored locally)
+setup/
+  launchagent-poller.plist
+  launchagent-web.plist
+setup_launch.sh install / uninstall / status / logs
 tests/
   test_signing.py
 ```
@@ -243,10 +330,11 @@ fallback so a house full of generically named sensors still lights up.
 
 | Route | Returns |
 |---|---|
-| `GET /api/house` | levels, rooms, sensor placements |
+| `GET /api/house` | levels, rooms, sensor placements (honours the override) |
 | `GET /api/readings?hours=24` | latest per sensor + 24 h rollup |
 | `GET /api/history/<id>?hours=24` | time series, downsampled to 2000 points |
 | `GET /api/status` | readiness; never includes credentials or tokens |
+| `POST /api/layout` | validate + persist a layout override (400 on invalid) |
 
 ---
 

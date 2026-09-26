@@ -17,6 +17,17 @@ const state = {
 
 const scene = new HouseScene($("#view"));
 scene.onSelect = handleSelect;
+scene.onEdit = (result) => {
+  if (!editMode) return;
+  scene.applyPlacement(result.id, result.x, result.z);
+  pendingPlacements.set(result.id, {
+    x: result.x,
+    z: result.z,
+    room_id: result.roomId,
+  });
+  const label = result.room ? result.room : "outside any room";
+  toast(`${result.id} → x ${result.x} z ${result.z} (${label})`);
+};
 
 // ── data ─────────────────────────────────────────────────────────────────────
 
@@ -364,6 +375,70 @@ function handleSelect(payload) {
   }
 }
 
+// ── layout editing ───────────────────────────────────────────────────────────
+//
+// Sensor positions are guesses until someone measures the real room, so the
+// editor lets you drag each sensor where it actually lives and write the result
+// to house_layout.json. Room rectangles can be edited in the same file by hand.
+
+let editMode = false;
+const pendingPlacements = new Map();
+
+async function saveLayout() {
+  if (!pendingPlacements.size) {
+    toast("nothing to save");
+    return;
+  }
+  const payload = { ...state.house };
+  payload.sensors = payload.sensors.map((s) => {
+    const override = pendingPlacements.get(s.id);
+    return override ? { ...s, ...override } : s;
+  });
+
+  const btn = $("#save-layout");
+  btn.disabled = true;
+  btn.textContent = "saving…";
+  try {
+    const response = await fetch("/api/layout", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      toast(`rejected: ${data.error || response.status}`);
+      return;
+    }
+    pendingPlacements.clear();
+    toast(`saved to ${data.saved.split("/").pop()}`);
+    await loadHouse();
+  } catch (err) {
+    toast(`save failed: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save layout";
+  }
+}
+
+function toast(message, bad = false) {
+  const el = $("#toast");
+  el.textContent = message;
+  el.className = bad ? "show bad" : "show";
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = ""; }, 3200);
+}
+
+function setEditMode(on) {
+  editMode = on;
+  scene.setEditMode(on);
+  $("#edit-toggle").classList.toggle("active", on);
+  $("#edit-panel").classList.toggle("open", on);
+  $("#view").style.pointerEvents = "auto";
+  if (!on && pendingPlacements.size) {
+    toast(`${pendingPlacements.size} unsaved change(s) — press Save layout`);
+  }
+}
+
 // ── boot ─────────────────────────────────────────────────────────────────────
 
 function wireControls() {
@@ -384,6 +459,14 @@ function wireControls() {
 
   $("#reset-view").addEventListener("click", () => {
     scene.frameBuilding();
+  });
+
+  $("#edit-toggle").addEventListener("click", () => setEditMode(!editMode));
+  $("#save-layout").addEventListener("click", saveLayout);
+  $("#discard-layout").addEventListener("click", async () => {
+    pendingPlacements.clear();
+    await loadHouse();
+    toast("discarded unsaved changes");
   });
 }
 

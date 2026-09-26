@@ -8,6 +8,7 @@ imports the poller.
 from __future__ import annotations
 
 import logging
+import os
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -21,7 +22,13 @@ log = logging.getLogger(__name__)
 STATIC_DIR = "static"
 
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
-house = House()
+
+# Reloaded on demand so editing house_layout.json does not need a restart.
+def current_house() -> House:
+    return House.load()
+
+
+house = current_house()
 
 
 def _db():
@@ -40,7 +47,36 @@ def index():
 @app.route("/api/house")
 def api_house():
     """Static geometry: levels, rooms, sensor placements."""
-    return jsonify(house.to_dict())
+    return jsonify(current_house().to_dict())
+
+
+@app.route("/api/layout", methods=["POST"])
+def api_save_layout():
+    """Persist a layout override — used by the in-scene editor.
+
+    Validates before writing: a rejected layout returns 400 and leaves the file
+    on disk untouched, so a bad drag can never corrupt a working model.
+    """
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "expected a JSON object"}), 400
+    # An empty body is almost certainly a broken client. Without this guard it
+    # would validate as "all defaults" and quietly overwrite a saved layout.
+    if not payload.keys() & {"levels", "sensors"}:
+        return jsonify({"error": "layout must contain 'levels' and/or 'sensors'"}), 400
+    try:
+        candidate = House.from_dict(payload)
+    except (ValueError, KeyError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        path = candidate.save_layout()
+    except OSError as exc:
+        return jsonify({"error": f"cannot write layout: {exc}"}), 500
+
+    global house
+    house = candidate
+    return jsonify({"saved": str(path), "meta": candidate.summary()})
 
 
 @app.route("/api/readings")
@@ -123,4 +159,7 @@ def api_status():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    app.run(host="127.0.0.1", port=5002, debug=False)
+    # Bound to loopback only. Never expose this beyond the machine.
+    host = os.environ.get("HOUSE_TWIN_HOST", "127.0.0.1")
+    port = int(os.environ.get("HOUSE_TWIN_PORT", "5002"))
+    app.run(host=host, port=port, debug=False)

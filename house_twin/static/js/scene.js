@@ -91,7 +91,13 @@ export class HouseScene {
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
-    this.canvas.addEventListener("pointerdown", (e) => this._onClick(e));
+    this.canvas.addEventListener("pointerdown", (e) => {
+      if (this.editMode) this._beginDrag(e);
+      else this._onClick(e);
+    });
+    this.canvas.addEventListener("pointermove", (e) => this._moveDrag(e));
+    this.canvas.addEventListener("pointerup", (e) => this._endDrag(e));
+    this.canvas.addEventListener("pointercancel", (e) => this._endDrag(e));
   }
 
   _initLights() {
@@ -488,9 +494,7 @@ export class HouseScene {
   // ── interaction ──────────────────────────────────────────────────────────
 
   _onClick(event) {
-    const rect = this.canvas.getBoundingClientRect();
-    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this._setPointer(event);
     this.raycaster.setFromCamera(this.pointer, this.camera);
 
     const hits = this.raycaster.intersectObjects(
@@ -607,6 +611,141 @@ export class HouseScene {
     this.controls.maxDistance = distance * 4;
     this.controls.update();
     this.invalidate();
+  }
+
+  /**
+   * Move sensors by dragging them across their floor plate.
+   *
+   * Positions are guesses until someone stands in the room with a tape measure,
+   * so this is the fastest way to correct them. The drag is constrained to the
+   * XZ plane of the sensor's own level, and the nearest room is reported on
+   * drop so the placement can be sanity-checked before saving.
+   */
+  setEditMode(on) {
+    this.editMode = !!on;
+    this.canvas.style.cursor = on ? "crosshair" : "";
+    for (const [id, mesh] of this.sensorMeshes) {
+      const { bulb } = mesh.userData;
+      bulb.material.emissiveIntensity = this.editMode ? 0.9 : 0.55;
+      mesh.scale.setScalar(this.editMode ? 1.25 : 1);
+    }
+    this.invalidate();
+  }
+
+  /** Room whose rectangle contains (x, z) on *level*, or null. */
+  roomAt(level, x, z) {
+    const lv = this.house.levels.find((l) => l.index === level);
+    if (!lv) return null;
+    return (
+      lv.rooms.find(
+        (r) => x >= r.x && x <= r.x + r.width && z >= r.z && z <= r.z + r.depth
+      ) || null
+    );
+  }
+
+  _beginDrag(event) {
+    if (!this.editMode) return;
+    const hit = this._pickSensor(event);
+    if (!hit) return;
+
+    this._drag = {
+      sensorId: hit,
+      plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+      offset: new THREE.Vector3(),
+    };
+    const mesh = this.sensorMeshes.get(hit);
+    this._drag.plane.constant = -mesh.position.y;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    this.raycaster.ray.intersectPlane(this._drag.plane, this._drag.offset);
+    this._drag.offset.sub(mesh.position);
+    this.controls.enabled = false;
+    this.canvas.setPointerCapture(event.pointerId);
+  }
+
+  _moveDrag(event) {
+    if (!this._drag) return;
+    const mesh = this.sensorMeshes.get(this._drag.sensorId);
+    if (!mesh) return;
+
+    this._setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const point = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this._drag.plane, point)) return;
+
+    point.sub(this._drag.offset);
+    const [fx, fz] = this.house.meta.footprint_ft;
+    // Clamp so a drag can never fling a sensor off the building.
+    point.x = Math.max(0.5, Math.min(fx - 0.5, point.x));
+    point.z = Math.max(0.5, Math.min(fz - 0.5, point.z));
+    mesh.position.x = point.x;
+    mesh.position.z = point.z;
+    this.invalidate();
+  }
+
+  _endDrag(event) {
+    if (!this._drag) return;
+    const { sensorId } = this._drag;
+    const mesh = this.sensorMeshes.get(sensorId);
+    this._drag = null;
+    this.controls.enabled = true;
+    if (event?.pointerId != null) {
+      try { this.canvas.releasePointerCapture(event.pointerId); } catch { /* already released */ }
+    }
+    if (!mesh) return;
+
+    const placement = this.house.sensors.find((s) => s.id === sensorId);
+    if (!placement) return;
+    const room = this.roomAt(placement.level, mesh.position.x, mesh.position.z);
+    const result = this.onEdit({
+      id: sensorId,
+      x: +mesh.position.x.toFixed(2),
+      z: +mesh.position.z.toFixed(2),
+      room: room ? room.name : null,
+      roomId: room ? room.id : null,
+    });
+    if (result === false) this._restorePlacement(placement, mesh);
+  }
+
+  _restorePlacement(placement, mesh) {
+    const group = this.levelGroups.get(placement.level);
+    mesh.position.set(placement.x, group.position.y + placement.height_ft, placement.z);
+    this.invalidate();
+  }
+
+  /**
+   * Commit a position into the in-memory model.
+   *
+   * `this.house` is the plain JSON from /api/house, not dataclass instances, so
+   * entries are spread rather than serialised. The level's explosion offset is
+   * recomputed on the next _applyExplode/invalidate cycle.
+   */
+  applyPlacement(sensorId, x, z) {
+    const index = this.house.sensors.findIndex((s) => s.id === sensorId);
+    if (index < 0) return null;
+    const current = this.house.sensors[index];
+    const room = this.roomAt(current.level, x, z);
+    const updated = {
+      ...current,
+      x,
+      z,
+      room_id: room ? room.id : current.room_id,
+    };
+    this.house.sensors[index] = updated;
+    return updated;
+  }
+
+  _pickSensor(event) {
+    this._setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const bulbs = [...this.sensorMeshes.values()].map((m) => m.userData.bulb);
+    const hits = this.raycaster.intersectObjects(bulbs, false);
+    return hits.length ? hits[0].object.userData.sensorId : null;
+  }
+
+  _setPointer(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   }
 
   render() {

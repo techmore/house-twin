@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- __PROJECT_ROOT__ is replaced by setup_launch.sh at install time -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dolbec.housetwin.web</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PROJECT_ROOT__/.venv/bin/python</string>
+        <string>-m</string>
+        <string>house_twin.web</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_ROOT__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/housetwin-web.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/housetwin-web.error</string>
+</dict>
+</plist>

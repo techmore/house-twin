@@ -109,6 +109,45 @@ h1, h2 { margin: 0; font-weight: 600; }
   user-select: none;
 }
 
+/* ── layout editor ────────────────────────────────────────────────────────── */
+
+#edit-panel {
+  display: none;
+}
+#edit-panel.open { display: block; }
+#edit-panel .note + .note { margin-top: 8px; }
+#edit-panel code {
+  color: var(--accent);
+  font-size: 10px;
+}
+#edit-panel em { color: var(--olive-300); font-style: normal; }
+
+.ghost.wide { flex: 1; text-align: center; }
+#edit-toggle.active {
+  background: var(--olive-700);
+  border-color: var(--accent);
+  color: var(--olive-100);
+}
+
+#toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translate(-50%, 14px);
+  padding: 7px 14px;
+  background: var(--olive-800);
+  border: 1px solid var(--olive-600);
+  border-radius: 4px;
+  color: var(--olive-100);
+  font-size: 11px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast.bad { border-color: var(--bad); color: #f0c8c0; }
+
 /* ── controls ────────────────────────────────────────────────────────────── */
 
 .level-toggle {

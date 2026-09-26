@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     conn = store.connect(args.db)
-    house = House()
+    house = House.load()
 
     if args.clear:
         removed = clear(conn)

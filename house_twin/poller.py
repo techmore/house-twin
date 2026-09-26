@@ -111,7 +111,7 @@ def run(
     )
 
     config = config or Config()
-    house = house or House()
+    house = house or House.load()
     client = AqaraClient(config)
     conn = store.connect()
     running = True
@@ -124,20 +124,33 @@ def run(
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
-    if not config.has_credentials():
-        log.error("no credentials in %s — run `python -m house_twin.auth` first",
-                  config.path)
-    elif not config.has_token():
-        log.error("credentials present but not authorised — run `python -m house_twin.auth`")
-
+    # Missing credentials are reported by the idle branch inside the loop, so
+    # that the message is logged once rather than on every pass.
     last_prune = 0.0
     consecutive_errors = 0
+    # Set while there is nothing to poll. Suppresses the per-cycle warning so an
+    # unauthorised install does not fill the log at one line a minute.
+    idle_reason: str | None = None
 
     while running:
         started = time.time()
+
+        if not (config.has_credentials() and config.has_token()):
+            reason = (
+                f"no credentials in {config.path} — run `python -m house_twin.auth setup`"
+                if not config.has_credentials()
+                else "credentials present but not authorised — run `python -m house_twin.auth login`"
+            )
+            if reason != idle_reason:
+                log.warning("idle: %s", reason)
+                idle_reason = reason
+            time.sleep(max(1.0, interval))
+            continue
+
         try:
             poll_once(client, house, conn)
             consecutive_errors = 0
+            idle_reason = None
         except AqaraError as exc:
             consecutive_errors += 1
             log.warning("poll failed (%d in a row): %s", consecutive_errors, exc)

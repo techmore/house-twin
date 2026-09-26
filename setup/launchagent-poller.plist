@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- __PROJECT_ROOT__ is replaced by setup_launch.sh at install time -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dolbec.housetwin.poller</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PROJECT_ROOT__/.venv/bin/python</string>
+        <string>-u</string>
+        <string>-m</string>
+        <string>house_twin.poller</string>
+    </array>
+
+    <!-- Run from the project directory so house.db and config.json resolve correctly -->
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_ROOT__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart automatically if the poller crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!--
+      The poller exits immediately with a clear error if it has no
+      credentials yet. KeepAlive would otherwise spin on that, so back off
+      and let the next real failure be visible in the log.
+    -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Required: unbuffered output so the log is live -->
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/housetwin-poller.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/housetwin-poller.error</string>
+</dict>
+</plist>
