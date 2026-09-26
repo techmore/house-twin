@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>House Twin — live conditions</title>
+<link rel="stylesheet" href="/static/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./static/vendor/three.module.js",
+    "three/addons/controls/OrbitControls.js": "./static/vendor/OrbitControls.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <h1>House Twin</h1>
+    <span id="building-meta">loading…</span>
+  </div>
+  <div class="summary">
+    <div class="stat"><em>avg</em><span id="sum-indoor">--</span></div>
+    <div class="stat"><em>range</em><span id="sum-range">--</span></div>
+    <div class="stat"><em>humidity</em><span id="sum-humidity">--</span></div>
+    <div class="stat"><em>sensors</em><span id="sum-sensors">0</span></div>
+  </div>
+  <div class="status">
+    <span id="status-dot" class="dot off"></span>
+    <span id="status-text">checking…</span>
+  </div>
+</header>
+
+<main id="layout">
+  <aside id="panel">
+    <section class="controls">
+      <h2>View</h2>
+      <div id="level-toggles"></div>
+      <label class="slider">
+        <span>Explode floors</span>
+        <input type="range" id="explode" min="0" max="100" value="0">
+      </label>
+      <div class="row">
+        <label class="inline">
+          <span>Range</span>
+          <select id="range">
+            <option value="1">1 hour</option>
+            <option value="6">6 hours</option>
+            <option value="24" selected>24 hours</option>
+            <option value="168">7 days</option>
+            <option value="720">30 days</option>
+          </select>
+        </label>
+        <button id="reset-view" class="ghost">Reset view</button>
+      </div>
+    </section>
+
+    <section class="legend">
+      <h2>Temperature</h2>
+      <div id="legend-bar"></div>
+      <div class="legend-scale"><span>16°C</span><span>23°C</span><span>30°C</span></div>
+      <p class="note">
+        Interpolated from sensor readings by inverse distance weighting.
+        Grey means no readings on that floor.
+      </p>
+    </section>
+
+    <section class="sensors">
+      <h2>Sensors</h2>
+      <ul id="sensor-list"></ul>
+    </section>
+  </aside>
+
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <div id="hint">drag to orbit · scroll to zoom · click a sensor</div>
+  </div>
+</main>
+
+<section id="detail">
+  <div class="detail-head">
+    <div>
+      <h2 id="detail-title">—</h2>
+      <span id="detail-sub"></span>
+    </div>
+    <button id="detail-close" class="ghost" aria-label="Close">×</button>
+  </div>
+  <div class="detail-vals">
+    <div><em>temp</em><span id="detail-temp">--</span></div>
+    <div><em>humidity</em><span id="detail-hum">--</span></div>
+    <div><em>battery</em><span id="detail-batt">--</span></div>
+  </div>
+  <canvas id="detail-chart" width="760" height="180"></canvas>
+</section>
+
+<div class="fatal" style="display:none"></div>
+
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

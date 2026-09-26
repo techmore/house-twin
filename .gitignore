@@ -1,0 +1,19 @@
+# Credentials and live tokens — never commit
+config.json
+config.json.tmp
+
+# Local database
+house.db
+house.db-shm
+house.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
