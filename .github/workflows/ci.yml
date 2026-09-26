@@ -134,8 +134,21 @@ jobs:
           print('layout validation OK')
           "
 
-      - name: plists are valid
-        run: for f in setup/*.plist; do plutil -lint "$f"; done
+      - name: plists parse
+        # plutil is macOS-only, so validate with plistlib instead. This runs on
+        # the Linux runner and actually parses the XML rather than shelling out.
+        run: |
+          python -c "
+          import plistlib, pathlib
+          for p in sorted(pathlib.Path('setup').glob('*.plist')):
+              with p.open('rb') as fh:
+                  d = plistlib.load(fh)
+              assert d['Label'].startswith('com.dolbec.housetwin'), d['Label']
+              assert '__PROJECT_ROOT__' in ' '.join(d['ProgramArguments']), d
+              assert d['WorkingDirectory'] == '__PROJECT_ROOT__', d
+              print(p.name, '->', d['Label'])
+          print('plists OK')
+          "
 
       - name: shell script is valid
-        run: bash -n setup_launch.sh
+        run: bash -n setup_launch.sh && echo "setup_launch.sh OK"
